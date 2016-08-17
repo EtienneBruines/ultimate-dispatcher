@@ -10,6 +10,7 @@ import (
 	"github.com/EtienneBruines/ultimate-dispatcher/dl"
 	"github.com/EtienneBruines/ultimate-dispatcher/ui"
 	"github.com/luxengine/math"
+	"sort"
 )
 
 const (
@@ -25,7 +26,8 @@ type Game struct {
 	IncidentCount int
 	Paused        bool
 
-	hoverings map[uint64]bool
+	hoverings  map[uint64]bool
+	currentMap *dl.Map
 }
 
 func (g *Game) StartHovering(uid uint64) {
@@ -110,6 +112,7 @@ func (g *Game) Setup(w *ecs.World) {
 	}
 
 	m.Initialize()
+	g.currentMap = m
 
 	for _, node := range m.Nodes {
 		type mapEntity struct {
@@ -126,7 +129,6 @@ func (g *Game) Setup(w *ecs.World) {
 		rs.Add(&me.BasicEntity, &me.RenderComponent, &me.SpaceComponent)
 
 		// Render roads - TODO: optimize
-		fmt.Println("Connected to:")
 		for _, conn := range node.ConnectedTo {
 			type roadEntity struct {
 				ecs.BasicEntity
@@ -141,7 +143,9 @@ func (g *Game) Setup(w *ecs.World) {
 				SpaceComponent:  common.SpaceComponent{loc, length, RoadSize, rot},
 			}
 			rs.Add(&road.BasicEntity, &road.RenderComponent, &road.SpaceComponent)
-			fmt.Println(m.Node(conn), loc, length, rot)
+
+			connNode := m.Node(conn)
+			connNode.ConnectedTo = append(connNode.ConnectedTo, node.ID)
 		}
 	}
 
@@ -156,15 +160,7 @@ func (g *Game) Setup(w *ecs.World) {
 
 	for _, in := range incidents {
 		// Look for nearest node, to prevent issues
-		var maxDistance float32 = math.MaxFloat32
-		var nearestNode uint32
-		for _, node := range m.Nodes {
-			if d := node.Location.PointDistanceSquared(in.Location); d < maxDistance {
-				maxDistance = d
-				nearestNode = node.ID
-			}
-		}
-		loc := m.Node(nearestNode)
+		loc := m.NearestNode(in.Location)
 
 		type IncidentEntity struct {
 			ecs.BasicEntity
@@ -211,7 +207,7 @@ func (g *Game) Setup(w *ecs.World) {
 	// Now let's see if we can get some police ready for the incident
 
 	units := []Police{
-		{1, 4},
+		{ID: 1, Location: 4},
 	}
 	for _, unit := range units {
 		pe := PoliceEntity{
@@ -258,6 +254,86 @@ type Police struct {
 	ID uint32
 	// Location indicated in node ID's
 	Location uint32
+
+	// Commands stuff
+	Commands []Command
+	Targets  []engo.Point
+
+	currentCommand Command
+	currentTarget  engo.Point
+
+	// Move-specific info
+	lastMove     uint64
+	currentRoute dl.Route
+}
+
+func (p *Police) QueueCommand(c Command, target engo.Point) {
+	p.Commands = append(p.Commands, c)
+	p.Targets = append(p.Targets, target)
+}
+
+func (p *Police) ProcessCommand() (Command, engo.Point) {
+	if len(p.Commands) == 0 {
+		return CommandHold, engo.Point{}
+	}
+
+	cmd := p.Commands[0]
+	p.Commands = p.Commands[1:]
+	target := p.Targets[0]
+	p.Targets = p.Targets[1:]
+	return cmd, target
+}
+
+func (p *Police) SetRoute(loc engo.Point) {
+	// Go to node closest to where we wanna go
+	dest := TheGame.currentMap.NearestNode(loc)
+
+	// Going for an A* algorithm, with Euclidean-distance as heuristic
+	h := func(a, b *dl.RouteNode) float32 {
+		dx := a.Location.X - b.Location.X
+		dy := a.Location.Y - b.Location.Y
+		return dx*dx + dy*dy
+	}
+
+	visited := make(map[uint32]struct{})
+	curr := TheGame.currentMap.Node(p.Location)
+
+	type queueItem struct {
+		Route     dl.Route
+		Heuristic float32
+	}
+
+	var queue PriorityQueue
+	queue.Enqueue(queueItem{Route: dl.Route{Nodes: []*dl.RouteNode{curr}}}, 0)
+
+	var goalReached bool
+	var route dl.Route
+
+	for !goalReached && len(queue.values) > 0 {
+		// Dequeue
+		next := queue.Dequeue()
+		n := next.(queueItem)
+		nNode := n.Route.Nodes[len(n.Route.Nodes)-1]
+
+		if nNode.ID == dest.ID {
+			goalReached = true
+			route = n.Route
+			break
+		}
+
+		for _, connID := range nNode.ConnectedTo {
+			if _, ok := visited[connID]; ok {
+				continue // skip whatever we've already visited
+			}
+
+			childNode := TheGame.currentMap.Node(connID)
+			heuristic := h(curr, nNode)
+			queue.Enqueue(queueItem{Route: dl.Route{Nodes: append(n.Route.Nodes, childNode)}, Heuristic: heuristic}, heuristic)
+			visited[connID] = struct{}{}
+		}
+	}
+
+	p.currentRoute = route
 }
 
 type PoliceEntity struct {
@@ -293,9 +369,15 @@ type DispatchSystem struct {
 	incidents map[uint64]DispatchSystemIncidentEntity
 
 	active            uint64
+	submenuTarget     engo.Point
 	submenuActive     bool
 	submenuBackground ui.Graphic
 	submenuActions    []*ui.Button
+}
+
+func (d *DispatchSystem) QueueCommand(c Command) {
+	unit := d.police[d.active]
+	unit.Police.QueueCommand(c, d.submenuTarget)
 }
 
 func (d *DispatchSystem) New(w *ecs.World) {
@@ -307,14 +389,12 @@ func (d *DispatchSystem) New(w *ecs.World) {
 		OnClick func(*ui.Button)
 	}{
 		{Name: "Search area", OnClick: func(*ui.Button) {
-			// TODO: move to node
-			// TODO: search area
-			fmt.Println("Searching area...")
+			d.QueueCommand(CommandMove)
+			d.QueueCommand(CommandSearchArea)
 		}},
 		{Name: "Hold watch", OnClick: func(*ui.Button) {
-			// TODO: move to node
-			// TODO: hold watch
-			fmt.Println("Holding watch...")
+			d.QueueCommand(CommandMove)
+			d.QueueCommand(CommandLookout)
 		}},
 	}
 
@@ -394,6 +474,7 @@ func (d *DispatchSystem) hideSubmenu() {
 }
 
 func (d *DispatchSystem) showSubmenu(pos engo.Point) {
+	d.submenuTarget = pos
 	d.submenuActive = true
 	d.submenuBackground.Hidden = false
 	d.submenuBackground.Position = pos
@@ -425,6 +506,7 @@ func (d *DispatchSystem) Remove(b ecs.BasicEntity) {
 }
 
 func (d *DispatchSystem) Update(dt float32) {
+	// Allow us to select a police unit
 	if d.active == 0 {
 		for id, police := range d.police {
 			if police.MouseComponent.Enter {
@@ -443,10 +525,11 @@ func (d *DispatchSystem) Update(dt float32) {
 		}
 	}
 
+	// If we've selected a police unit, we can issue commands
 	if d.active > 0 {
 		police := d.police[d.active]
 
-		// Check if we're hovering incidents
+		// Allow us to select an incident, to open a submenu
 		for _, incident := range d.incidents {
 			if incident.Enter {
 				incident.Color = IncidentColorHover
@@ -457,12 +540,11 @@ func (d *DispatchSystem) Update(dt float32) {
 			}
 
 			if incident.Clicked {
-				// TODO: open submenu with option to "Go to", or to "Investigate", or to "Move" ...
 				d.showSubmenu(incident.Incident.Location)
 			}
 		}
 
-		// Check if we're using the submenu
+		// Check if we're using the submenu, to allow command issuing
 		var submenuUsed bool
 		if d.submenuActive {
 			for _, action := range d.submenuActions {
@@ -490,7 +572,56 @@ func (d *DispatchSystem) Update(dt float32) {
 			}
 		}
 	}
+
+	// Process all commands given to any units
+	for _, p := range d.police {
+		if p.Police.currentCommand == CommandHold {
+			p.Police.currentCommand, p.Police.currentTarget = p.Police.ProcessCommand()
+		}
+		switch p.Police.currentCommand {
+		case CommandHold:
+			// Do nothing
+		case CommandMove:
+			if len(p.Police.currentRoute.Nodes) < 1 {
+				p.Police.SetRoute(p.Police.currentTarget)
+			}
+			fmt.Println("Moving to node")
+		}
+	}
+
 }
+
+type PriorityQueue struct {
+	list   []interface{}
+	values []float32
+}
+
+func (p *PriorityQueue) Enqueue(item interface{}, value float32) {
+	index := SearchFloat32s(p.values, value)
+	p.values = append(p.values[:index], append([]float32{value}, p.values[index:]...)...)
+	p.list = append(p.list[:index], append([]interface{}{item}, p.list[index:]...)...)
+}
+
+func (p *PriorityQueue) Dequeue() interface{} {
+	p.values = p.values[1:]
+	item := p.list[0]
+	p.list = p.list[1:]
+	return item
+}
+
+func SearchFloat32s(a []float32, x float32) int {
+	return sort.Search(len(a), func(i int) bool { return a[i] >= x })
+}
+
+type Command uint8
+
+const (
+	CommandHold Command = iota
+	CommandMove
+	CommandLookout
+	CommandSearchArea
+	CommandTrafficControl
+)
 
 type IncidentType uint8
 

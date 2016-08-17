@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 
 	"engo.io/engo"
+	"github.com/luxengine/math"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -30,6 +31,18 @@ func (m *Map) Node(id uint32) *RouteNode {
 		return nil
 	}
 	return n
+}
+
+func (m *Map) NearestNode(origin engo.Point) *RouteNode {
+	var maxDistance float32 = math.MaxFloat32
+	var nearestNode uint32
+	for _, node := range m.Nodes {
+		if d := node.Location.PointDistanceSquared(origin); d < maxDistance {
+			maxDistance = d
+			nearestNode = node.ID
+		}
+	}
+	return m.Node(nearestNode)
 }
 
 func (m Map) URL() string {
@@ -58,7 +71,7 @@ func (rn RouteNode) String() string {
 }
 
 type Route struct {
-	Nodes []RouteNode
+	Nodes []*RouteNode
 }
 
 func (r Route) String() string {
