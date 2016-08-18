@@ -25,6 +25,18 @@ func (m *Map) Initialize() {
 	}
 }
 
+func (m *Map) AddNode(n *RouteNode) {
+	m.Nodes = append(m.Nodes, n)
+	m.nodesMap[n.ID] = n
+}
+
+var counter uint32 = 50000
+
+func NewMapID() uint32 {
+	counter++
+	return counter
+}
+
 func RandomMap(w, h uint32, width, height float32) *Map {
 	m := new(Map)
 	m.Name = "RandomMap"
@@ -91,8 +103,10 @@ func (m Map) String() string {
 }
 
 type RouteNode struct {
-	ID       uint32
-	Location engo.Point
+	ID             uint32
+	Location       engo.Point
+	Temporary      bool
+	TemporaryUsers uint8
 
 	ConnectedTo []uint32 `yaml:"connectedTo"`
 }

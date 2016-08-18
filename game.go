@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"sort"
 
 	"engo.io/ecs"
 	"engo.io/engo"
@@ -10,7 +11,6 @@ import (
 	"github.com/EtienneBruines/ultimate-dispatcher/dl"
 	"github.com/EtienneBruines/ultimate-dispatcher/ui"
 	"github.com/luxengine/math"
-	"sort"
 )
 
 const (
@@ -58,6 +58,7 @@ const (
 	RoadSize     = 2
 	IncidentSize = 2 * NodeSize
 	policeSize   = 2 * NodeSize
+	waypointSize = 1 * NodeSize
 
 	tooltipLineHeight float32 = 12
 
@@ -75,12 +76,14 @@ var (
 	tooltipColor        = color.NRGBA{230, 230, 230, 240}
 	tooltipColorHover   = color.NRGBA{230, 230, 180, 255}
 	tooltipColorBorder  = color.Black
+	waypointColor       = color.NRGBA{0, 255, 0, 150}
 
 	nodeGraphic     = common.Circle{}
 	roadGraphic     = common.Rectangle{}
 	incidentGraphic = common.Circle{}
 	policeGraphic   = common.Circle{}
 	tooltipGraphic  = common.Rectangle{BorderWidth: 1, BorderColor: tooltipColorBorder}
+	waypointGraphic = common.Rectangle{}
 )
 
 func (g *Game) Setup(w *ecs.World) {
@@ -301,10 +304,12 @@ func (p *Police) SetRoute(loc engo.Point) {
 	dest := TheGame.currentMap.NearestNode(loc)
 
 	// Going for an A* algorithm, with Euclidean-distance as heuristic
-	h := func(a, b *dl.RouteNode) float32 {
-		dx := a.Location.X - b.Location.X
-		dy := a.Location.Y - b.Location.Y
-		return dx*dx + dy*dy
+	h := func(curr, goal, pos *dl.RouteNode) float32 {
+		dx := pos.Location.X - goal.Location.X
+		dy := pos.Location.Y - goal.Location.Y
+		dx2 := pos.Location.X - curr.Location.X
+		dy2 := pos.Location.Y - curr.Location.Y
+		return dx*dx + dy*dy - (dx2*dx2 + dy2*dy2)
 	}
 
 	visited := make(map[uint32]struct{})
@@ -340,7 +345,7 @@ func (p *Police) SetRoute(loc engo.Point) {
 			}
 
 			childNode := TheGame.currentMap.Node(connID)
-			heuristic := h(dest, nNode)
+			heuristic := h(curr, dest, nNode)
 			//cost := h(curr, nNode)
 			queue.Enqueue(queueItem{Route: dl.Route{Nodes: append(n.Route.Nodes, childNode)}}, heuristic)
 			visited[connID] = struct{}{}
@@ -376,6 +381,8 @@ func (p *Police) move(dt float32) {
 		p.currentRoute.Nodes = p.currentRoute.Nodes[1:]
 		if len(p.currentRoute.Nodes) == 0 {
 			p.currentCommand = CommandHold
+		} else {
+			fmt.Println(len(p.currentRoute.Nodes))
 		}
 	}
 
@@ -420,16 +427,52 @@ type DispatchSystem struct {
 	submenuActive     bool
 	submenuBackground ui.Graphic
 	submenuActions    []*ui.Button
+	mouseTracker      common.MouseComponent
+	wpEntity          ui.Button
 }
 
 func (d *DispatchSystem) QueueCommand(c Command) {
 	unit := d.police[d.active]
+	// create a temporary node for the submenuTarget
+
+	nearest := TheGame.currentMap.NearestNode(d.submenuTarget)
+	if nearest.Temporary {
+		nearest.TemporaryUsers++
+	} else {
+		temp := new(dl.RouteNode)
+		temp.Location = d.submenuTarget
+		temp.ID = dl.NewMapID()
+		temp.Temporary = true
+		temp.TemporaryUsers = 1
+
+		// And also add the second connected City
+		minDistance := float32(math.MaxFloat32)
+		var secondNearest *dl.RouteNode
+		for _, connection := range nearest.ConnectedTo {
+			conn := TheGame.currentMap.Node(connection)
+			if d := conn.Location.PointDistance(d.submenuTarget); d < minDistance {
+				minDistance = d
+				secondNearest = conn
+			}
+		}
+
+		nearest.ConnectedTo = append(nearest.ConnectedTo, temp.ID)
+		secondNearest.ConnectedTo = append(secondNearest.ConnectedTo, temp.ID)
+		temp.ConnectedTo = []uint32{nearest.ID, secondNearest.ID}
+
+		TheGame.currentMap.AddNode(temp)
+		// TODO: clean this up later to prevent (relatively slow) memory leaking
+	}
+
 	unit.Police.QueueCommand(c, d.submenuTarget)
 }
 
 func (d *DispatchSystem) New(w *ecs.World) {
 	d.police = make(map[uint64]DispatchSystemPoliceEntity)
 	d.incidents = make(map[uint64]DispatchSystemIncidentEntity)
+
+	d.mouseTracker.Track = true
+	mouseTrackerBasic := ecs.NewBasic()
 
 	actions := []struct {
 		Name    string
@@ -491,6 +534,15 @@ func (d *DispatchSystem) New(w *ecs.World) {
 		d.submenuActions = append(d.submenuActions, but)
 	}
 
+	d.wpEntity = ui.Button{
+		Graphic: ui.Graphic{
+			BasicEntity:     ecs.NewBasic(),
+			RenderComponent: common.RenderComponent{Drawable: waypointGraphic, Color: waypointColor, Hidden: true},
+			SpaceComponent:  common.SpaceComponent{Width: waypointSize, Height: waypointSize},
+		},
+	}
+	d.wpEntity.Graphic.SetZIndex(5)
+
 	for _, system := range w.Systems() {
 		switch sys := system.(type) {
 		case *common.RenderSystem:
@@ -499,10 +551,13 @@ func (d *DispatchSystem) New(w *ecs.World) {
 				sys.Add(&sa.Label.BasicEntity, &sa.Label.RenderComponent, &sa.Label.SpaceComponent)
 				sys.Add(&sa.Graphic.BasicEntity, &sa.Graphic.RenderComponent, &sa.Graphic.SpaceComponent)
 			}
+			sys.Add(&d.wpEntity.Graphic.BasicEntity, &d.wpEntity.Graphic.RenderComponent, &d.wpEntity.Graphic.SpaceComponent)
 		case *common.MouseSystem:
 			for _, sa := range d.submenuActions {
 				sys.Add(&sa.Graphic.BasicEntity, &sa.MouseComponent, &sa.Graphic.SpaceComponent, &sa.Graphic.RenderComponent)
 			}
+			sys.Add(&mouseTrackerBasic, &d.mouseTracker, nil, nil)
+			sys.Add(&d.wpEntity.Graphic.BasicEntity, &d.wpEntity.MouseComponent, &d.wpEntity.Graphic.SpaceComponent, &d.wpEntity.Graphic.RenderComponent)
 		}
 	}
 
@@ -566,6 +621,7 @@ func (d *DispatchSystem) Update(dt float32) {
 			if police.MouseComponent.Clicked {
 				police.Color = policeColorSelected
 				d.active = id
+				d.wpEntity.Graphic.Hidden = false
 				TheGame.StopHovering(id)
 				return
 			}
@@ -576,18 +632,68 @@ func (d *DispatchSystem) Update(dt float32) {
 	if d.active > 0 {
 		police := d.police[d.active]
 
-		// Allow us to select an incident, to open a submenu
-		for _, incident := range d.incidents {
-			if incident.Enter {
-				incident.Color = IncidentColorHover
-				TheGame.StartHovering(incident.ID())
-			} else if incident.Leave {
-				incident.Color = IncidentColor
-				TheGame.StopHovering(incident.ID())
+		if !d.submenuActive {
+
+			// We can issue commands anywhere we want, as long as it's connected to roads.
+			mX, mY := d.mouseTracker.MouseX, d.mouseTracker.MouseY
+			mP := engo.Point{mX, mY}
+			// Check which city is closest, and try to snap to that road
+			nearest := TheGame.currentMap.NearestNode(mP)
+			// Now figure out which of the roads to snap to
+			// Source for this "distance" method, https://stackoverflow.com/a/6853926/3243814
+			distanceFunc := func(point, l1, l2 engo.Point) float32 {
+				A, B := point.X-l1.X, point.Y-l1.Y
+				C, D := l2.X-l1.X, l2.Y-l1.Y
+				dot := A*C + B*D
+				len_sq := math.Pow(C, 2) + math.Pow(D, 2)
+				param := float32(-1)
+				if len_sq != 0 {
+					param = dot / len_sq
+				}
+				var xx, yy float32
+				if param < 0 {
+					xx, yy = l1.X, l1.Y
+				} else if param > 1 {
+					xx, yy = l2.X, l2.Y
+				} else {
+					xx, yy = l1.X+param*C, l1.Y+param*D
+				}
+				dx, dy := point.X-xx, point.Y-yy
+				return math.Sqrt(math.Pow(dx, 2) + math.Pow(dy, 2))
 			}
 
-			if incident.Clicked {
-				d.showSubmenu(incident.Incident.Location)
+			minDistance := float32(math.MaxFloat32)
+			var secondNearest *dl.RouteNode
+			for _, connected := range nearest.ConnectedTo {
+				conn := TheGame.currentMap.Node(connected)
+				if d := distanceFunc(mP, nearest.Location, conn.Location); d < minDistance {
+					minDistance = d
+					secondNearest = conn
+				}
+			}
+
+			// Then figure out where on the road we want to snap
+			// distance on road² = distance to node² - distance to road²
+			dNode := nearest.Location.PointDistance(mP)
+			dRoad := minDistance
+			dOnRoad := math.Sqrt(math.Pow(dNode, 2) - math.Pow(dRoad, 2))
+
+			// Now we have to use triangle similarity to figure out where to place it
+			dX, dY := nearest.Location.X-secondNearest.Location.X, nearest.Location.Y-secondNearest.Location.Y
+			dDiag := math.Sqrt(math.Pow(dX, 2) + math.Pow(dY, 2))
+			ratio := dDiag / dOnRoad // note: dDiag should always be larger
+			waypointdx, waypointdy := dX/ratio, dY/ratio
+			waypoint := engo.Point{
+				X: nearest.Location.X - waypointdx - waypointSize/2,
+				Y: nearest.Location.Y - waypointdy - waypointSize/2,
+			}
+
+			// If we've snapped, we should create some kind of "waypoint-icon" player can click
+			d.wpEntity.Graphic.SpaceComponent.Position = waypoint
+
+			// Player can click, and will open submenu
+			if d.wpEntity.MouseComponent.Clicked {
+				d.showSubmenu(waypoint)
 			}
 		}
 
@@ -613,7 +719,7 @@ func (d *DispatchSystem) Update(dt float32) {
 			police.Color = policeColor
 			d.active = 0
 			TheGame.StopHovering(police.ID())
-
+			d.wpEntity.Graphic.Hidden = true
 			if d.submenuActive {
 				d.hideSubmenu()
 			}
@@ -634,6 +740,23 @@ func (d *DispatchSystem) Update(dt float32) {
 			}
 			p.Police.move(dt)
 			p.Position = p.Police.Location
+		case CommandLookout:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Police.Commands) > 0 {
+				p.Police.currentCommand = CommandHold
+			}
+		case CommandSearchArea:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Police.Commands) > 0 {
+				p.Police.currentCommand = CommandHold
+			}
+		case CommandTrafficControl:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Police.Commands) > 0 {
+				p.Police.currentCommand = CommandHold
+			}
+		default:
+			fmt.Println("Dunno what to do", p.Police.currentCommand)
 		}
 	}
 }
