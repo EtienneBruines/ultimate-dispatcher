@@ -1,5 +1,7 @@
 # ultimate-dispatcher
 
+[![Join the chat at https://gitter.im/ultimate-dispatcher/Lobby](https://badges.gitter.im/ultimate-dispatcher/Lobby.svg)](https://gitter.im/ultimate-dispatcher/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 This is a dispatcher simulation game, written in Go.
 
 ## Installation
