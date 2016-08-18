@@ -1,24 +1,21 @@
 nodes:
-  - name: Home
-    id: 1
+  - id: 1
     location:
       x: 200
       y: 200
-  - name: Node 1
-    id: 2
+  - id: 2
     location:
       x: 200
       y: 100
     connectedTo:
     - 1
-    - 3
-  - name: Node 2
-    id: 3
+  - id: 3
     location:
       x: 100
       y: 100
-  - name: Node 3
-    id: 4
+    connectedTo:
+    - 2
+  - id: 4
     location:
       x: 300
       y: 300

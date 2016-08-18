@@ -25,6 +25,38 @@ func (m *Map) Initialize() {
 	}
 }
 
+func RandomMap(w, h uint32, width, height float32) *Map {
+	m := new(Map)
+	m.Name = "RandomMap"
+	m.Nodes = make([]*RouteNode, w*h)
+	for i := uint32(0); i < w; i++ {
+		for j := uint32(0); j < h; j++ {
+			rn := new(RouteNode)
+			rn.ID = i*h + (j + 1)
+			rn.Location = engo.Point{
+				X: float32(i+1) * width,
+				Y: float32(j+1) * height,
+			}
+			if j > 0 {
+				// Connect to every node on the left
+				rn.ConnectedTo = append(rn.ConnectedTo, rn.ID-1)
+			}
+			if j+1 < h {
+				rn.ConnectedTo = append(rn.ConnectedTo, rn.ID+1)
+			}
+			if i > 0 {
+				// Connect to every node on the top
+				rn.ConnectedTo = append(rn.ConnectedTo, rn.ID-h)
+			}
+			if i+1 < w {
+				rn.ConnectedTo = append(rn.ConnectedTo, rn.ID+h)
+			}
+			m.Nodes[i*h+j] = rn
+		}
+	}
+	return m
+}
+
 func (m *Map) Node(id uint32) *RouteNode {
 	n, ok := m.nodesMap[id]
 	if !ok {
@@ -60,14 +92,13 @@ func (m Map) String() string {
 
 type RouteNode struct {
 	ID       uint32
-	Name     string
 	Location engo.Point
 
 	ConnectedTo []uint32 `yaml:"connectedTo"`
 }
 
 func (rn RouteNode) String() string {
-	return rn.Name
+	return fmt.Sprintf("Node %d", rn.ID)
 }
 
 type Route struct {

@@ -55,7 +55,7 @@ func (g *Game) Preload() {
 
 const (
 	NodeSize     = 10
-	RoadSize     = 5
+	RoadSize     = 2
 	IncidentSize = 2 * NodeSize
 	policeSize   = 2 * NodeSize
 
@@ -101,16 +101,19 @@ func (g *Game) Setup(w *ecs.World) {
 
 	engo.Input.RegisterButton(closeButton, engo.Escape)
 
-	mResource, err := engo.Files.Resource("maps/1.map")
-	if err != nil {
-		panic(err)
-	}
+	/*
+		mResource, err := engo.Files.Resource("maps/1.map")
+		if err != nil {
+			panic(err)
+		}
 
-	m, ok := mResource.(*dl.Map)
-	if !ok {
-		panic(fmt.Errorf("Map resource is not of type *Map: %s", "maps/1.map"))
-	}
+		m, ok := mResource.(*dl.Map)
+		if !ok {
+			panic(fmt.Errorf("Map resource is not of type *Map: %s", "maps/1.map"))
+		}
+	*/
 
+	m := dl.RandomMap(10, 10, 100, 100)
 	m.Initialize()
 	g.currentMap = m
 
@@ -144,14 +147,25 @@ func (g *Game) Setup(w *ecs.World) {
 			}
 			rs.Add(&road.BasicEntity, &road.RenderComponent, &road.SpaceComponent)
 
-			connNode := m.Node(conn)
-			connNode.ConnectedTo = append(connNode.ConnectedTo, node.ID)
+			/*
+				connNode := m.Node(conn)
+				var found bool
+				for _, n := range connNode.ConnectedTo {
+					if n == node.ID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					connNode.ConnectedTo = append(connNode.ConnectedTo, node.ID)
+				}
+			*/
 		}
 	}
 
 	// Now let's move on to the "incidents"
 	incidents := []Incident{
-		{Location: engo.Point{100, 100}, Reports: []IncidentReport{
+		{Type: IncidentCarSpeeding, Location: engo.Point{100, 100}, Reports: []IncidentReport{
 			{IncidentCarSpeeding, 1, 1, UrgencyNeutral},
 			{IncidentCarSpeeding, 1, 1, UrgencyNotUrgent},
 			{IncidentCarAccident, 1, 2, UrgencyUrgent},
@@ -189,7 +203,7 @@ func (g *Game) Setup(w *ecs.World) {
 		FG:   color.Black,
 		Size: 12,
 	}
-	if err = fnt.CreatePreloaded(); err != nil {
+	if err := fnt.CreatePreloaded(); err != nil {
 		panic(err)
 	}
 
@@ -207,13 +221,13 @@ func (g *Game) Setup(w *ecs.World) {
 	// Now let's see if we can get some police ready for the incident
 
 	units := []Police{
-		{ID: 1, Location: 4},
+		{ID: 1, Location: engo.Point{300, 300}},
 	}
 	for _, unit := range units {
 		pe := PoliceEntity{
 			BasicEntity:     ecs.NewBasic(),
 			RenderComponent: common.RenderComponent{Drawable: policeGraphic, Color: policeColor},
-			SpaceComponent:  common.SpaceComponent{m.Node(unit.Location).Location, policeSize, policeSize, 0},
+			SpaceComponent:  common.SpaceComponent{unit.Location, policeSize, policeSize, 0},
 			PoliceComponent: PoliceComponent{unit},
 		}
 		rs.Add(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent)
@@ -251,9 +265,8 @@ func (g *Game) Type() string {
 }
 
 type Police struct {
-	ID uint32
-	// Location indicated in node ID's
-	Location uint32
+	ID       uint32
+	Location engo.Point
 
 	// Commands stuff
 	Commands []Command
@@ -263,7 +276,6 @@ type Police struct {
 	currentTarget  engo.Point
 
 	// Move-specific info
-	lastMove     uint64
 	currentRoute dl.Route
 }
 
@@ -296,11 +308,11 @@ func (p *Police) SetRoute(loc engo.Point) {
 	}
 
 	visited := make(map[uint32]struct{})
-	curr := TheGame.currentMap.Node(p.Location)
+	curr := TheGame.currentMap.NearestNode(p.Location)
 
 	type queueItem struct {
-		Route     dl.Route
-		Heuristic float32
+		Route dl.Route
+		//Heuristic float32
 	}
 
 	var queue PriorityQueue
@@ -315,6 +327,7 @@ func (p *Police) SetRoute(loc engo.Point) {
 		n := next.(queueItem)
 		nNode := n.Route.Nodes[len(n.Route.Nodes)-1]
 
+		fmt.Println("Visiting", nNode.ID, nNode.Location)
 		if nNode.ID == dest.ID {
 			goalReached = true
 			route = n.Route
@@ -327,13 +340,47 @@ func (p *Police) SetRoute(loc engo.Point) {
 			}
 
 			childNode := TheGame.currentMap.Node(connID)
-			heuristic := h(curr, nNode)
-			queue.Enqueue(queueItem{Route: dl.Route{Nodes: append(n.Route.Nodes, childNode)}, Heuristic: heuristic}, heuristic)
+			heuristic := h(dest, nNode)
+			//cost := h(curr, nNode)
+			queue.Enqueue(queueItem{Route: dl.Route{Nodes: append(n.Route.Nodes, childNode)}}, heuristic)
 			visited[connID] = struct{}{}
 		}
 	}
 
+	if !goalReached {
+		panic("No route found")
+	}
+
 	p.currentRoute = route
+}
+
+// move allows the unit to move to the set destination, at the speed of the update
+func (p *Police) move(dt float32) {
+	const speed = 30
+	var distance = speed * dt
+
+	target := p.currentRoute.Nodes[0].Location
+
+	dx := target.X - p.Location.X
+	dy := target.Y - p.Location.Y
+	dDiagonal := math.Sqrt(math.Pow(dx, 2) + math.Pow(dy, 2))
+
+	var movementX, movementY float32
+	if dDiagonal > distance {
+		ratio := dDiagonal / distance
+		movementX = dx / ratio
+		movementY = dy / ratio
+	} else {
+		movementX = dx
+		movementY = dy
+		p.currentRoute.Nodes = p.currentRoute.Nodes[1:]
+		if len(p.currentRoute.Nodes) == 0 {
+			p.currentCommand = CommandHold
+		}
+	}
+
+	p.Location.X += movementX
+	p.Location.Y += movementY
 }
 
 type PoliceEntity struct {
@@ -585,10 +632,10 @@ func (d *DispatchSystem) Update(dt float32) {
 			if len(p.Police.currentRoute.Nodes) < 1 {
 				p.Police.SetRoute(p.Police.currentTarget)
 			}
-			fmt.Println("Moving to node")
+			p.Police.move(dt)
+			p.Position = p.Police.Location
 		}
 	}
-
 }
 
 type PriorityQueue struct {
@@ -645,6 +692,7 @@ type Incident struct {
 	Location engo.Point
 	Award    int
 	Penalty  int
+	Type     IncidentType
 
 	Reports []IncidentReport
 }
