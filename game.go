@@ -95,7 +95,7 @@ func (g *Game) Setup(w *ecs.World) {
 	w.AddSystem(rs)
 	w.AddSystem(ms)
 	w.AddSystem(common.NewKeyboardScroller(KeyboardScrollSpeed, engo.DefaultHorizontalAxis, engo.DefaultVerticalAxis))
-	w.AddSystem(&common.EdgeScroller{EdgeScrollSpeed, EdgeWidth})
+	//w.AddSystem(&common.EdgeScroller{EdgeScrollSpeed, EdgeWidth})
 	w.AddSystem(&common.MouseZoomer{ZoomSpeed})
 	w.AddSystem(ds)
 	w.AddSystem(ids)
