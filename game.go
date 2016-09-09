@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"sort"
 
 	"engo.io/ecs"
 	"engo.io/engo"
@@ -26,8 +25,7 @@ type Game struct {
 	IncidentCount int
 	Paused        bool
 
-	hoverings  map[uint64]bool
-	currentMap *dl.Map
+	hoverings map[uint64]bool
 }
 
 func (g *Game) StartHovering(uid uint64) {
@@ -68,7 +66,7 @@ const (
 var (
 	NodeColor           = color.NRGBA{0, 255, 255, 255}
 	RoadColor           = color.White
-	IncidentColor       = color.NRGBA{153, 0, 0, 128}
+	IncidentColor       = color.NRGBA{255, 0, 0, 128}
 	IncidentColorHover  = color.NRGBA{153, 0, 0, 255}
 	policeColor         = color.NRGBA{0, 0, 255, 128}
 	policeColorSelected = color.NRGBA{255, 0, 255, 255}
@@ -118,7 +116,6 @@ func (g *Game) Setup(w *ecs.World) {
 
 	m := dl.RandomMap(10, 10, 100, 100)
 	m.Initialize()
-	g.currentMap = m
 
 	for _, node := range m.Nodes {
 		type mapEntity struct {
@@ -193,6 +190,7 @@ func (g *Game) Setup(w *ecs.World) {
 			SpaceComponent:    common.SpaceComponent{loc.Location, IncidentSize, IncidentSize, 0},
 			IncidentComponent: IncidentComponent{in},
 		}
+		ie.RenderComponent.SetZIndex(5)
 		rs.Add(&ie.BasicEntity, &ie.RenderComponent, &ie.SpaceComponent)
 		ms.Add(&ie.BasicEntity, &ie.MouseComponent, &ie.SpaceComponent, &ie.RenderComponent)
 		ids.Add(&ie.BasicEntity, &ie.RenderComponent, &ie.MouseComponent, &ie.IncidentComponent)
@@ -223,16 +221,17 @@ func (g *Game) Setup(w *ecs.World) {
 
 	// Now let's see if we can get some police ready for the incident
 
-	units := []Police{
-		{ID: 1, Location: engo.Point{300, 300}},
+	units := []dl.Police{
+		{ID: 1},
 	}
 	for _, unit := range units {
 		pe := PoliceEntity{
 			BasicEntity:     ecs.NewBasic(),
 			RenderComponent: common.RenderComponent{Drawable: policeGraphic, Color: policeColor},
-			SpaceComponent:  common.SpaceComponent{unit.Location, policeSize, policeSize, 0},
-			PoliceComponent: PoliceComponent{unit},
+			SpaceComponent:  common.SpaceComponent{engo.Point{300, 300}, policeSize, policeSize, 0},
+			PoliceComponent: dl.PoliceComponent{unit},
 		}
+		pe.PoliceComponent.Police.Location = &pe.SpaceComponent.Position
 		rs.Add(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent)
 		ms.Add(&pe.BasicEntity, &pe.MouseComponent, &pe.SpaceComponent, &pe.RenderComponent)
 		ds.AddPolice(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent, &pe.MouseComponent, &pe.PoliceComponent)
@@ -267,139 +266,12 @@ func (g *Game) Type() string {
 	return "GameScene"
 }
 
-type Police struct {
-	ID       uint32
-	Location engo.Point
-
-	// Commands stuff
-	Commands []Command
-	Targets  []engo.Point
-
-	currentCommand Command
-	currentTarget  engo.Point
-
-	// Move-specific info
-	currentRoute dl.Route
-}
-
-func (p *Police) QueueCommand(c Command, target engo.Point) {
-	p.Commands = append(p.Commands, c)
-	p.Targets = append(p.Targets, target)
-}
-
-func (p *Police) ProcessCommand() (Command, engo.Point) {
-	if len(p.Commands) == 0 {
-		return CommandHold, engo.Point{}
-	}
-
-	cmd := p.Commands[0]
-	p.Commands = p.Commands[1:]
-	target := p.Targets[0]
-	p.Targets = p.Targets[1:]
-	return cmd, target
-}
-
-func (p *Police) SetRoute(loc engo.Point) {
-	// Go to node closest to where we wanna go
-	dest := TheGame.currentMap.NearestNode(loc)
-
-	// Going for an A* algorithm, with Euclidean-distance as heuristic
-	h := func(curr, goal, pos *dl.RouteNode) float32 {
-		dx := pos.Location.X - goal.Location.X
-		dy := pos.Location.Y - goal.Location.Y
-		dx2 := pos.Location.X - curr.Location.X
-		dy2 := pos.Location.Y - curr.Location.Y
-		return dx*dx + dy*dy - (dx2*dx2 + dy2*dy2)
-	}
-
-	visited := make(map[uint32]struct{})
-	curr := TheGame.currentMap.NearestNode(p.Location)
-
-	type queueItem struct {
-		Route dl.Route
-		//Heuristic float32
-	}
-
-	var queue PriorityQueue
-	queue.Enqueue(queueItem{Route: dl.Route{Nodes: []*dl.RouteNode{curr}}}, 0)
-
-	var goalReached bool
-	var route dl.Route
-
-	for !goalReached && len(queue.values) > 0 {
-		// Dequeue
-		next := queue.Dequeue()
-		n := next.(queueItem)
-		nNode := n.Route.Nodes[len(n.Route.Nodes)-1]
-
-		fmt.Println("Visiting", nNode.ID, nNode.Location)
-		if nNode.ID == dest.ID {
-			goalReached = true
-			route = n.Route
-			break
-		}
-
-		for _, connID := range nNode.ConnectedTo {
-			if _, ok := visited[connID]; ok {
-				continue // skip whatever we've already visited
-			}
-
-			childNode := TheGame.currentMap.Node(connID)
-			heuristic := h(curr, dest, nNode)
-			//cost := h(curr, nNode)
-			queue.Enqueue(queueItem{Route: dl.Route{Nodes: append(n.Route.Nodes, childNode)}}, heuristic)
-			visited[connID] = struct{}{}
-		}
-	}
-
-	if !goalReached {
-		panic("No route found")
-	}
-
-	p.currentRoute = route
-}
-
-// move allows the unit to move to the set destination, at the speed of the update
-func (p *Police) move(dt float32) {
-	const speed = 30
-	var distance = speed * dt
-
-	target := p.currentRoute.Nodes[0].Location
-
-	dx := target.X - p.Location.X
-	dy := target.Y - p.Location.Y
-	dDiagonal := math.Sqrt(math.Pow(dx, 2) + math.Pow(dy, 2))
-
-	var movementX, movementY float32
-	if dDiagonal > distance {
-		ratio := dDiagonal / distance
-		movementX = dx / ratio
-		movementY = dy / ratio
-	} else {
-		movementX = dx
-		movementY = dy
-		p.currentRoute.Nodes = p.currentRoute.Nodes[1:]
-		if len(p.currentRoute.Nodes) == 0 {
-			p.currentCommand = CommandHold
-		} else {
-			fmt.Println(len(p.currentRoute.Nodes))
-		}
-	}
-
-	p.Location.X += movementX
-	p.Location.Y += movementY
-}
-
 type PoliceEntity struct {
 	ecs.BasicEntity
 	common.RenderComponent
 	common.SpaceComponent
 	common.MouseComponent
-	PoliceComponent
-}
-
-type PoliceComponent struct {
-	Police Police
+	dl.PoliceComponent
 }
 
 type DispatchSystemPoliceEntity struct {
@@ -407,7 +279,7 @@ type DispatchSystemPoliceEntity struct {
 	*common.RenderComponent
 	*common.SpaceComponent
 	*common.MouseComponent
-	*PoliceComponent
+	*dl.PoliceComponent
 }
 
 type DispatchSystemIncidentEntity struct {
@@ -431,11 +303,11 @@ type DispatchSystem struct {
 	wpEntity          ui.Button
 }
 
-func (d *DispatchSystem) QueueCommand(c Command) {
+func (d *DispatchSystem) QueueCommand(c dl.PoliceCommand) {
 	unit := d.police[d.active]
 	// create a temporary node for the submenuTarget
 
-	nearest := TheGame.currentMap.NearestNode(d.submenuTarget)
+	nearest := dl.CurrentMap.NearestNode(d.submenuTarget)
 	if nearest.Temporary {
 		nearest.TemporaryUsers++
 	} else {
@@ -449,7 +321,7 @@ func (d *DispatchSystem) QueueCommand(c Command) {
 		minDistance := float32(math.MaxFloat32)
 		var secondNearest *dl.RouteNode
 		for _, connection := range nearest.ConnectedTo {
-			conn := TheGame.currentMap.Node(connection)
+			conn := dl.CurrentMap.Node(connection)
 			if d := conn.Location.PointDistance(d.submenuTarget); d < minDistance {
 				minDistance = d
 				secondNearest = conn
@@ -460,7 +332,7 @@ func (d *DispatchSystem) QueueCommand(c Command) {
 		secondNearest.ConnectedTo = append(secondNearest.ConnectedTo, temp.ID)
 		temp.ConnectedTo = []uint32{nearest.ID, secondNearest.ID}
 
-		TheGame.currentMap.AddNode(temp)
+		dl.CurrentMap.AddNode(temp)
 		// TODO: clean this up later to prevent (relatively slow) memory leaking
 	}
 
@@ -479,12 +351,12 @@ func (d *DispatchSystem) New(w *ecs.World) {
 		OnClick func(*ui.Button)
 	}{
 		{Name: "Search area", OnClick: func(*ui.Button) {
-			d.QueueCommand(CommandMove)
-			d.QueueCommand(CommandSearchArea)
+			d.QueueCommand(dl.CommandMove)
+			d.QueueCommand(dl.CommandSearchArea)
 		}},
 		{Name: "Hold watch", OnClick: func(*ui.Button) {
-			d.QueueCommand(CommandMove)
-			d.QueueCommand(CommandLookout)
+			d.QueueCommand(dl.CommandMove)
+			d.QueueCommand(dl.CommandLookout)
 		}},
 	}
 
@@ -594,7 +466,7 @@ func (d *DispatchSystem) showSubmenu(pos engo.Point) {
 	}
 }
 
-func (d *DispatchSystem) AddPolice(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, p *PoliceComponent) {
+func (d *DispatchSystem) AddPolice(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, p *dl.PoliceComponent) {
 	d.police[b.ID()] = DispatchSystemPoliceEntity{b, r, s, m, p}
 }
 
@@ -638,7 +510,7 @@ func (d *DispatchSystem) Update(dt float32) {
 			mX, mY := d.mouseTracker.MouseX, d.mouseTracker.MouseY
 			mP := engo.Point{mX, mY}
 			// Check which city is closest, and try to snap to that road
-			nearest := TheGame.currentMap.NearestNode(mP)
+			nearest := dl.CurrentMap.NearestNode(mP)
 			// Now figure out which of the roads to snap to
 			// Source for this "distance" method, https://stackoverflow.com/a/6853926/3243814
 			distanceFunc := func(point, l1, l2 engo.Point) float32 {
@@ -665,7 +537,7 @@ func (d *DispatchSystem) Update(dt float32) {
 			minDistance := float32(math.MaxFloat32)
 			var secondNearest *dl.RouteNode
 			for _, connected := range nearest.ConnectedTo {
-				conn := TheGame.currentMap.Node(connected)
+				conn := dl.CurrentMap.Node(connected)
 				if d := distanceFunc(mP, nearest.Location, conn.Location); d < minDistance {
 					minDistance = d
 					secondNearest = conn
@@ -728,70 +600,9 @@ func (d *DispatchSystem) Update(dt float32) {
 
 	// Process all commands given to any units
 	for _, p := range d.police {
-		if p.Police.currentCommand == CommandHold {
-			p.Police.currentCommand, p.Police.currentTarget = p.Police.ProcessCommand()
-		}
-		switch p.Police.currentCommand {
-		case CommandHold:
-			// Do nothing
-		case CommandMove:
-			if len(p.Police.currentRoute.Nodes) < 1 {
-				p.Police.SetRoute(p.Police.currentTarget)
-			}
-			p.Police.move(dt)
-			p.Position = p.Police.Location
-		case CommandLookout:
-			// If there's more to do, stop doing this and go do that other thing
-			if len(p.Police.Commands) > 0 {
-				p.Police.currentCommand = CommandHold
-			}
-		case CommandSearchArea:
-			// If there's more to do, stop doing this and go do that other thing
-			if len(p.Police.Commands) > 0 {
-				p.Police.currentCommand = CommandHold
-			}
-		case CommandTrafficControl:
-			// If there's more to do, stop doing this and go do that other thing
-			if len(p.Police.Commands) > 0 {
-				p.Police.currentCommand = CommandHold
-			}
-		default:
-			fmt.Println("Dunno what to do", p.Police.currentCommand)
-		}
+		p.Police.Update(dt)
 	}
 }
-
-type PriorityQueue struct {
-	list   []interface{}
-	values []float32
-}
-
-func (p *PriorityQueue) Enqueue(item interface{}, value float32) {
-	index := SearchFloat32s(p.values, value)
-	p.values = append(p.values[:index], append([]float32{value}, p.values[index:]...)...)
-	p.list = append(p.list[:index], append([]interface{}{item}, p.list[index:]...)...)
-}
-
-func (p *PriorityQueue) Dequeue() interface{} {
-	p.values = p.values[1:]
-	item := p.list[0]
-	p.list = p.list[1:]
-	return item
-}
-
-func SearchFloat32s(a []float32, x float32) int {
-	return sort.Search(len(a), func(i int) bool { return a[i] >= x })
-}
-
-type Command uint8
-
-const (
-	CommandHold Command = iota
-	CommandMove
-	CommandLookout
-	CommandSearchArea
-	CommandTrafficControl
-)
 
 type IncidentType uint8
 

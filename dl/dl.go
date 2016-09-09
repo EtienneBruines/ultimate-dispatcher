@@ -12,6 +12,8 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+var CurrentMap *Map
+
 type Map struct {
 	Name     string
 	Nodes    []*RouteNode
@@ -23,6 +25,7 @@ func (m *Map) Initialize() {
 	for _, node := range m.Nodes {
 		m.nodesMap[node.ID] = node
 	}
+	CurrentMap = m
 }
 
 func (m *Map) AddNode(n *RouteNode) {

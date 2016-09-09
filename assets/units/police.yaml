@@ -1,0 +1,20 @@
+units:
+  - name: "Car"
+    speed: 220
+    passengers: 4
+    arrested: 2
+    total: 5
+    size: 1
+  - name: "Van w/ Cells"
+    speed: 160
+    passengers: 2
+    arrested: 4
+    total: 6
+    size: 1.5
+  - name: "Bike Light"
+    speed: 230
+    passengers: 1
+    arrested: 0
+    total: 1
+    size: 0.5
+
