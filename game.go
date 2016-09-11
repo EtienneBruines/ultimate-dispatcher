@@ -76,6 +76,8 @@ var (
 	tooltipColorBorder  = color.Black
 	waypointColor       = color.NRGBA{0, 255, 0, 150}
 
+	PoliceZIndex float32 = 500
+
 	nodeGraphic     = common.Circle{}
 	roadGraphic     = common.Rectangle{}
 	incidentGraphic = common.Circle{}
@@ -124,12 +126,15 @@ func (g *Game) Setup(w *ecs.World) {
 			common.SpaceComponent
 		}
 
+		/* We can add it if we want to enable it for debugging
 		me := mapEntity{
 			BasicEntity:     ecs.NewBasic(),
 			RenderComponent: common.RenderComponent{Drawable: nodeGraphic, Color: NodeColor},
 			SpaceComponent:  common.SpaceComponent{node.Location, NodeSize, NodeSize, 0},
 		}
+
 		rs.Add(&me.BasicEntity, &me.RenderComponent, &me.SpaceComponent)
+		*/
 
 		// Render roads - TODO: optimize
 		for _, conn := range node.ConnectedTo {
@@ -221,16 +226,31 @@ func (g *Game) Setup(w *ecs.World) {
 
 	// Now let's see if we can get some police ready for the incident
 
-	units := []dl.Police{
-		{ID: 1},
+	unitTypes, err := dl.LoadPoliceUnits("assets/units/police.yaml")
+	if err != nil {
+		panic(err)
 	}
-	for _, unit := range units {
+
+	unitLocations := []engo.Point{
+		{300, 300},
+		{500, 500},
+		{400, 100},
+		{900, 900},
+	}
+	units := []dl.Police{
+		{ID: 1, Unit: unitTypes.ByName("Car")},
+		{ID: 2, Unit: unitTypes.ByName("Car")},
+		{ID: 3, Unit: unitTypes.ByName("Bike Light")},
+		{ID: 4, Unit: unitTypes.ByName("Van w/ Cells")},
+	}
+	for i, unit := range units {
 		pe := PoliceEntity{
 			BasicEntity:     ecs.NewBasic(),
 			RenderComponent: common.RenderComponent{Drawable: policeGraphic, Color: policeColor},
-			SpaceComponent:  common.SpaceComponent{engo.Point{300, 300}, policeSize, policeSize, 0},
+			SpaceComponent:  common.SpaceComponent{unitLocations[i], policeSize * unit.Unit.Size, policeSize * unit.Unit.Size, 0},
 			PoliceComponent: dl.PoliceComponent{unit},
 		}
+		pe.SetZIndex(PoliceZIndex)
 		pe.PoliceComponent.Police.Location = &pe.SpaceComponent.Position
 		rs.Add(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent)
 		ms.Add(&pe.BasicEntity, &pe.MouseComponent, &pe.SpaceComponent, &pe.RenderComponent)

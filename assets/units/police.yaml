@@ -6,7 +6,7 @@ units:
     total: 5
     size: 1
   - name: "Van w/ Cells"
-    speed: 160
+    speed: 120
     passengers: 2
     arrested: 4
     total: 6

@@ -2,9 +2,12 @@ package dl
 
 import (
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
 
 	"engo.io/engo"
 	"github.com/luxengine/math"
+	"gopkg.in/yaml.v2"
 )
 
 type PoliceCommand uint8
@@ -21,18 +24,30 @@ type PoliceComponent struct {
 	Police Police
 }
 
-type PoliceUnit struct {
+type PoliceUnitType struct {
 	Name             string
 	Speed            float32
-	PassengersPolice int `yaml:"passenges"`
-	PassengersCuffed int `yaml:"arrested"`
-	PassengersTotal  int `yaml:"total"`
+	Size             float32 `yaml:"size"`
+	PassengersPolice int     `yaml:"passenges"`
+	PassengersCuffed int     `yaml:"arrested"`
+	PassengersTotal  int     `yaml:"total"`
+}
+
+type PoliceUnitTypes []PoliceUnitType
+
+func (p PoliceUnitTypes) ByName(name string) PoliceUnitType {
+	for id, police := range p {
+		if police.Name == name {
+			return p[id]
+		}
+	}
+	return PoliceUnitType{}
 }
 
 type Police struct {
 	ID       uint32
 	Location *engo.Point
-	Unit     PoliceUnit
+	Unit     PoliceUnitType
 
 	// Commands stuff
 	Commands []PoliceCommand
@@ -43,6 +58,35 @@ type Police struct {
 
 	// Move-specific info
 	currentRoute Route
+}
+
+func LoadPoliceUnits(filename string) (PoliceUnitTypes, error) {
+	ext := filepath.Ext(filename)
+	var unmarshal func([]byte, interface{}) error
+
+	switch ext {
+	case ".yaml":
+		unmarshal = yaml.Unmarshal
+	default:
+		// Ignore
+		return nil, nil
+	}
+
+	b, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var units struct {
+		Units []PoliceUnitType
+	}
+
+	err = unmarshal(b, &units)
+	if err != nil {
+		return nil, err
+	}
+
+	return units.Units, nil
 }
 
 func (p *Police) QueueCommand(c PoliceCommand, target engo.Point) {
@@ -154,8 +198,7 @@ func (p *Police) SetRoute(loc engo.Point) {
 
 // move allows the unit to move to the set destination, at the speed of the update
 func (p *Police) move(dt float32) {
-	const speed = 30
-	var distance = speed * dt
+	var distance = p.Unit.Speed / 3.6 * dt
 
 	target := p.currentRoute.Nodes[0].Location
 
