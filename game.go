@@ -58,7 +58,7 @@ const (
 	policeSize   = 2 * NodeSize
 	waypointSize = 1 * NodeSize
 
-	tooltipLineHeight float32 = 12
+	tooltipLineHeight float32 = 24
 
 	closeButton = "close"
 )
@@ -367,10 +367,11 @@ func (d *DispatchSystem) New(w *ecs.World) {
 			Color:    tooltipColor,
 		},
 		SpaceComponent: common.SpaceComponent{
-			Width:  100,
+			Width:  200,
 			Height: tooltipLineHeight * float32(len(actions)),
 		},
 	}
+	d.submenuBackground.RenderComponent.SetShader(common.HUDShader)
 
 	fnt := &common.Font{
 		URL:  "fonts/Roboto-Regular.ttf",
@@ -395,14 +396,16 @@ func (d *DispatchSystem) New(w *ecs.World) {
 			b.Graphic.Color = tooltipColor
 			TheGame.StopHovering(but.Graphic.ID())
 		}
-		but.Label.Width = 100
+		but.Label.Width = 200
 		but.Label.Height = tooltipLineHeight
 		but.Label.SetZIndex(10)
+		but.Label.SetShader(common.TextHUDShader)
 		but.Graphic.Color = tooltipColor
 		but.Graphic.Drawable = tooltipGraphic
-		but.Graphic.Width = 100
+		but.Graphic.Width = 200
 		but.Graphic.Height = tooltipLineHeight
 		but.Graphic.SetZIndex(9)
+		but.Graphic.RenderComponent.SetShader(common.HUDShader)
 		d.submenuActions = append(d.submenuActions, but)
 	}
 
