@@ -568,7 +568,8 @@ func (d *DispatchSystem) Update(dt float32) {
 
 			// Player can click, and will open submenu
 			if d.wpEntity.MouseComponent.Clicked {
-				d.showSubmenu(waypoint)
+				// Using raw location because it's a HUD
+				d.showSubmenu(engo.Point{engo.Input.Mouse.X, engo.Input.Mouse.Y})
 			}
 		}
 
