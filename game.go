@@ -471,7 +471,6 @@ func (d *DispatchSystem) hideSubmenu() {
 }
 
 func (d *DispatchSystem) showSubmenu(pos engo.Point) {
-	d.submenuTarget = pos
 	d.submenuActive = true
 	d.submenuBackground.Hidden = false
 	d.submenuBackground.Position = pos
@@ -589,6 +588,7 @@ func (d *DispatchSystem) Update(dt float32) {
 			// Player can click, and will open submenu
 			if d.wpEntity.MouseComponent.Clicked {
 				// Using raw location because it's a HUD
+				d.submenuTarget = waypoint
 				d.showSubmenu(engo.Point{engo.Input.Mouse.X, engo.Input.Mouse.Y})
 			}
 		}
