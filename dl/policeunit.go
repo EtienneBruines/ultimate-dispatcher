@@ -170,7 +170,6 @@ func (p *Police) SetRoute(loc engo.Point) {
 		n := next.(queueItem)
 		nNode := n.Route.Nodes[len(n.Route.Nodes)-1]
 
-		fmt.Println("Visiting", nNode.ID, nNode.Location)
 		if nNode.ID == dest.ID {
 			goalReached = true
 			route = n.Route
@@ -222,8 +221,6 @@ func (p *Police) move(dt float32) {
 		}
 	}
 
-	fmt.Println("B4", p.Location)
 	p.Location.X += movementX
 	p.Location.Y += movementY
-	fmt.Println("After", p.Location)
 }
