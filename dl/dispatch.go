@@ -38,9 +38,18 @@ type DispatchSystemIncidentEntity struct {
 	*IncidentComponent
 }
 
+type DispatchSystemIncidentReportEntity struct {
+	*ecs.BasicEntity
+	*common.RenderComponent
+	*common.SpaceComponent
+	*common.MouseComponent
+	*IncidentReportComponent
+}
+
 type DispatchSystem struct {
-	police    map[uint64]DispatchSystemPoliceEntity
-	incidents map[uint64]DispatchSystemIncidentEntity
+	police          map[uint64]DispatchSystemPoliceEntity
+	incidents       map[uint64]DispatchSystemIncidentEntity
+	incidentReports map[uint64]DispatchSystemIncidentReportEntity
 
 	active            uint64
 	submenuTarget     engo.Point
@@ -226,9 +235,14 @@ func (d *DispatchSystem) AddIncident(b *ecs.BasicEntity, r *common.RenderCompone
 	d.incidents[b.ID()] = DispatchSystemIncidentEntity{b, r, s, m, i}
 }
 
+func (d *DispatchSystem) AddIncidentReport(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, i *IncidentReportComponent) {
+	d.incidentReports[b.ID()] = DispatchSystemIncidentReportEntity{b, r, s, m, i}
+}
+
 func (d *DispatchSystem) Remove(b ecs.BasicEntity) {
 	delete(d.police, b.ID())
 	delete(d.incidents, b.ID())
+	delete(d.incidentReports, b.ID())
 }
 
 func (d *DispatchSystem) Update(dt float32) {

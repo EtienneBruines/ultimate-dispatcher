@@ -28,7 +28,7 @@ type IncidentDebugViewMessage struct {
 func (IncidentDebugViewMessage) Type() string { return "IncidentDebugViewMessage" }
 
 type IncidentNewMessage struct {
-	Incident *Incident
+	Incident IncidentComponent
 }
 
 func (IncidentNewMessage) Type() string { return "IncidentNewMessage" }
@@ -76,43 +76,56 @@ const (
 	UrgencyNotUrgent
 )
 
-type Incident struct {
-	Location engo.Point
+type IncidentComponent struct {
+	Location *engo.Point
 	Award    int
 	Penalty  int
 	Type     IncidentType
 
-	Reports []IncidentReport
+	Reports []IncidentReportComponent
 }
 
-type IncidentReport struct {
+type IncidentReportComponent struct {
+	Location  *engo.Point
 	Type      IncidentType
 	MinAmount uint8
 	MaxAmount uint8
 	Urgency   UrgencyLevel
 }
 
-type IncidentComponent struct {
-	Incident Incident
+type IncidentEntity struct {
+	ecs.BasicEntity
+	common.RenderComponent
+	common.SpaceComponent
+	common.MouseComponent
+	IncidentComponent
+}
+
+type IncidentReportEntity struct {
+	ecs.BasicEntity
+	common.RenderComponent
+	common.SpaceComponent
+	common.MouseComponent
+	IncidentReportComponent
 }
 
 type IncidentSpawningSystem struct {
 	world         *ecs.World
 	incidentLabel ui.Label
 
-	activeIncidents []*Incident
+	activeIncidents       []*IncidentEntity
+	activeIncidentReports map[uint64][]*IncidentReportEntity
 }
 
 func (d *IncidentSpawningSystem) New(w *ecs.World) {
 	d.world = w
+	d.activeIncidentReports = make(map[uint64][]*IncidentReportEntity)
 
 	engo.Mailbox.Listen("IncidentDebugViewMessage", func(m engo.Message) {
 		debugMsg := m.(IncidentDebugViewMessage)
 
-		if debugMsg.NewValue {
-			// TODO: Everything should become visible now!
-		} else {
-			// TODO: Everything should become invisible now!
+		for _, incident := range d.activeIncidents {
+			incident.RenderComponent.Hidden = !debugMsg.NewValue
 		}
 	})
 
@@ -149,42 +162,80 @@ func (d *IncidentSpawningSystem) New(w *ecs.World) {
 	}
 }
 
-func (d *IncidentSpawningSystem) Remove(b ecs.BasicEntity) {}
+func (d *IncidentSpawningSystem) Remove(b ecs.BasicEntity) {
+	delete(d.activeIncidentReports, b.ID())
+	// TODO: also remove the Incident itself
+	// TODO: also remove all incident reports!
+}
 
 func (d *IncidentSpawningSystem) Update(dt float32) {
 	d.incidentLabel.SetText(fmt.Sprintf("Active Incidents: %d", len(d.activeIncidents)))
 }
 
-func (d *IncidentSpawningSystem) Spawn(in *Incident) {
-	loc := CurrentMap.NearestNode(in.Location)
-
-	type IncidentEntity struct {
-		ecs.BasicEntity
-		common.RenderComponent
-		common.SpaceComponent
-		common.MouseComponent
-		IncidentComponent
-	}
-
-	ie := IncidentEntity{
-		BasicEntity:     ecs.NewBasic(),
-		RenderComponent: common.RenderComponent{Drawable: ui.IncidentGraphic, Color: ui.IncidentColor},
+func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
+	ie := &IncidentEntity{
+		BasicEntity: ecs.NewBasic(),
+		RenderComponent: common.RenderComponent{
+			Drawable:         ui.IncidentGraphic,
+			Color:            ui.IncidentColor,
+			Hidden:           !debugView,
+			TextureAlignment: common.AlignCenter,
+		},
 		SpaceComponent: common.SpaceComponent{
-			Position: loc.Location,
+			Position: *in.Location,
 			Width:    ui.IncidentSize,
 			Height:   ui.IncidentSize,
 			Rotation: 0,
 		},
-		IncidentComponent: IncidentComponent{*in},
 	}
+	in.Location = &ie.SpaceComponent.Position
+	ie.IncidentComponent = in
+
 	ie.RenderComponent.SetZIndex(5)
+
+	for _, report := range in.Reports {
+		re := &IncidentReportEntity{
+			BasicEntity: ecs.NewBasic(),
+			RenderComponent: common.RenderComponent{
+				Drawable:         ui.IncidentReportGraphic,
+				Color:            ui.IncidentReportColor,
+				TextureAlignment: common.AlignCenter,
+			},
+			SpaceComponent: common.SpaceComponent{
+				Position: *report.Location,
+				Width:    ui.IncidentReportSize,
+				Height:   ui.IncidentReportSize,
+				Rotation: 0,
+			},
+			IncidentReportComponent: report,
+		}
+		report.Location = &re.SpaceComponent.Position
+		re.RenderComponent.SetZIndex(5)
+
+		var curList []*IncidentReportEntity
+		if l, ok := d.activeIncidentReports[ie.ID()]; ok {
+			curList = l
+		}
+		curList = append(curList, re)
+		d.activeIncidentReports[ie.ID()] = curList
+	}
 
 	for _, system := range d.world.Systems() {
 		switch sys := system.(type) {
 		case *common.RenderSystem:
 			sys.Add(&ie.BasicEntity, &ie.RenderComponent, &ie.SpaceComponent)
+			for _, reports := range d.activeIncidentReports {
+				for _, report := range reports {
+					sys.Add(&report.BasicEntity, &report.RenderComponent, &report.SpaceComponent)
+				}
+			}
 		case *common.MouseSystem:
 			sys.Add(&ie.BasicEntity, &ie.MouseComponent, &ie.SpaceComponent, &ie.RenderComponent)
+			for _, reports := range d.activeIncidentReports {
+				for _, report := range reports {
+					sys.Add(&report.BasicEntity, &report.MouseComponent, &report.SpaceComponent, &report.RenderComponent)
+				}
+			}
 		case *IncidentDetailSystem:
 			sys.Add(&ie.BasicEntity, &ie.RenderComponent, &ie.MouseComponent, &ie.IncidentComponent)
 		case *DispatchSystem:
@@ -192,7 +243,7 @@ func (d *IncidentSpawningSystem) Spawn(in *Incident) {
 		}
 	}
 
-	d.activeIncidents = append(d.activeIncidents, in)
+	d.activeIncidents = append(d.activeIncidents, ie)
 }
 
 type IncidentDetailSystemEntity struct {

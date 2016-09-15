@@ -116,16 +116,16 @@ func (g *Game) Setup(w *ecs.World) {
 	}
 
 	// Now let's move on to the "incidents"
-	incidents := []dl.Incident{
-		{Type: dl.IncidentCarSpeeding, Location: engo.Point{100, 100}, Reports: []dl.IncidentReport{
-			{dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNeutral},
-			{dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNotUrgent},
-			{dl.IncidentCarAccident, 1, 2, dl.UrgencyUrgent},
+	incidents := []dl.IncidentComponent{
+		{Type: dl.IncidentCarSpeeding, Location: &engo.Point{100, 100}, Reports: []dl.IncidentReportComponent{
+			{&engo.Point{100, 145}, dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNeutral},
+			{&engo.Point{130, 104}, dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNotUrgent},
+			{&engo.Point{165, 102}, dl.IncidentCarAccident, 1, 2, dl.UrgencyUrgent},
 		}},
 	}
 
 	for id := range incidents {
-		iss.Spawn(&incidents[id])
+		iss.Spawn(incidents[id])
 	}
 
 	// Now let's see if we can get some police ready for the incident
@@ -150,7 +150,7 @@ func (g *Game) Setup(w *ecs.World) {
 	for i, unit := range units {
 		pe := dl.PoliceEntity{
 			BasicEntity:     ecs.NewBasic(),
-			RenderComponent: common.RenderComponent{Drawable: ui.PoliceGraphic, Color: ui.PoliceColor},
+			RenderComponent: common.RenderComponent{Drawable: ui.PoliceGraphic, Color: ui.PoliceColor, TextureAlignment: common.AlignCenter},
 			SpaceComponent:  common.SpaceComponent{unitLocations[i], ui.PoliceSize * unit.Unit.Size, ui.PoliceSize * unit.Unit.Size, 0},
 			PoliceComponent: dl.PoliceComponent{unit},
 		}
