@@ -142,13 +142,13 @@ func (p *Police) SetRoute(loc engo.Point) {
 	// Go to node closest to where we wanna go
 	dest := CurrentMap.NearestNode(loc)
 
-	// Going for an A* algorithm, with Euclidean-distance as heuristic (minus the cost)
+	// Going for an A* algorithm, with Euclidean-distance as heuristic (including the cost)
 	h := func(curr, goal, pos *RouteNode) float32 {
 		dx := pos.Location.X - goal.Location.X
 		dy := pos.Location.Y - goal.Location.Y
 		dx2 := pos.Location.X - curr.Location.X
 		dy2 := pos.Location.Y - curr.Location.Y
-		return dx*dx + dy*dy - (dx2*dx2 + dy2*dy2)
+		return dx*dx + dy*dy + (dx2*dx2 + dy2*dy2)
 	}
 
 	visited := make(map[uint32]struct{})
