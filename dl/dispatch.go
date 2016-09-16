@@ -2,6 +2,7 @@ package dl
 
 import (
 	"image/color"
+	"log"
 
 	"engo.io/ecs"
 	"engo.io/engo"
@@ -93,7 +94,7 @@ func (d *DispatchSystem) QueueCommand(c PoliceCommand) {
 		// TODO: clean this up later to prevent (relatively slow) memory leaking
 	}
 
-	unit.Police.QueueCommand(c, d.submenuTarget)
+	unit.QueueCommand(c, d.submenuTarget)
 }
 
 func (d *DispatchSystem) New(w *ecs.World) {
@@ -368,6 +369,57 @@ func (d *DispatchSystem) Update(dt float32) {
 
 	// Process all commands given to any units
 	for _, p := range d.police {
-		p.Police.Update(dt)
+		if p.CurrentCommand == CommandHold {
+			p.CurrentCommand, p.CurrentTarget = p.processCommand()
+		}
+		switch p.CurrentCommand {
+		case CommandHold:
+		// Do nothing
+		case CommandMove:
+			if len(p.CurrentRoute.Nodes) < 1 {
+				p.SetRoute(p.CurrentTarget)
+			}
+			p.Move(dt)
+		case CommandLookout:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Commands) > 0 {
+				p.CurrentCommand = CommandHold
+			}
+			d.Lookout(p.PoliceComponent, p.CurrentTarget)
+		case CommandSearchArea:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Commands) > 0 {
+				p.CurrentCommand = CommandHold
+			}
+			p.Wander(dt, p.CurrentTarget)
+			d.Lookout(p.PoliceComponent, p.CurrentTarget)
+		case CommandTrafficControl:
+			// If there's more to do, stop doing this and go do that other thing
+			if len(p.Commands) > 0 {
+				p.CurrentCommand = CommandHold
+			}
+		default:
+			log.Println("Dunno what to do", p.CurrentCommand)
+		}
+
+		if p.CurrentResolve.BasicEntity != nil {
+			engo.Mailbox.Dispatch(IncidentResolveMessage{p.CurrentResolve.IncidentComponent, p.CurrentResolve.BasicEntity})
+			p.CurrentResolve = DispatchSystemIncidentEntity{}
+		}
+	}
+}
+
+func (d *DispatchSystem) Lookout(p *PoliceComponent, t engo.Point) {
+	maxDist := p.Unit.ViewDistance
+
+	if p.CurrentResolve.BasicEntity == nil {
+		// Find new target, if any
+		for _, incident := range d.incidents {
+			if incident.Location.PointDistance(*p.Location) < maxDist {
+				p.CurrentResolve = incident
+				log.Println("Set currentResolve")
+				break
+			}
+		}
 	}
 }

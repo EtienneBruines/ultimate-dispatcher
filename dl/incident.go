@@ -37,6 +37,13 @@ type IncidentDebugSystem struct {
 	world *ecs.World
 }
 
+type IncidentResolveMessage struct {
+	Incident *IncidentComponent
+	Basic    *ecs.BasicEntity
+}
+
+func (IncidentResolveMessage) Type() string { return "IncidentResolveMessage" }
+
 func (d *IncidentDebugSystem) New(w *ecs.World) {
 	d.world = w
 	engo.Input.RegisterButton(incidentSpawningKey, engo.F1)
@@ -135,6 +142,12 @@ func (d *IncidentSpawningSystem) New(w *ecs.World) {
 		d.Spawn(newMsg.Incident)
 	})
 
+	engo.Mailbox.Listen("IncidentResolveMessage", func(m engo.Message) {
+		res := m.(IncidentResolveMessage)
+
+		d.Resolve(res.Incident, res.Basic)
+	})
+
 	// Show the incident counter in the corner
 	fnt := &common.Font{
 		URL:  "fonts/Roboto-Regular.ttf",
@@ -163,9 +176,41 @@ func (d *IncidentSpawningSystem) New(w *ecs.World) {
 }
 
 func (d *IncidentSpawningSystem) Remove(b ecs.BasicEntity) {
-	delete(d.activeIncidentReports, b.ID())
-	// TODO: also remove the Incident itself
-	// TODO: also remove all incident reports!
+	for incidentID, reports := range d.activeIncidentReports {
+		index := -1
+		for i, report := range reports {
+			if report.ID() == b.ID() {
+				index = i
+				break
+			}
+		}
+		if index >= 0 {
+			d.activeIncidentReports[incidentID] = append(reports[:index], reports[index+1:]...)
+			return
+		}
+	}
+
+	if reports, ok := d.activeIncidentReports[b.ID()]; ok {
+		var ids []ecs.BasicEntity
+		for _, report := range reports {
+			ids = append(ids, report.BasicEntity)
+		}
+		for _, id := range ids {
+			d.world.RemoveEntity(id)
+		}
+		delete(d.activeIncidentReports, b.ID())
+	}
+
+	index := -1
+	for i, incident := range d.activeIncidents {
+		if incident.ID() == b.ID() {
+			index = i
+			break
+		}
+	}
+	if index >= 0 {
+		d.activeIncidents = append(d.activeIncidents[:index], d.activeIncidents[index+1:]...)
+	}
 }
 
 func (d *IncidentSpawningSystem) Update(dt float32) {
@@ -216,6 +261,7 @@ func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
 		if l, ok := d.activeIncidentReports[ie.ID()]; ok {
 			curList = l
 		}
+		log.Println("Added", re.BasicEntity)
 		curList = append(curList, re)
 		d.activeIncidentReports[ie.ID()] = curList
 	}
@@ -244,6 +290,12 @@ func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
 	}
 
 	d.activeIncidents = append(d.activeIncidents, ie)
+}
+
+func (d *IncidentSpawningSystem) Resolve(in *IncidentComponent, basic *ecs.BasicEntity) {
+	log.Println("Resolving", in.Location)
+	d.world.RemoveEntity(*basic)
+	// TODO: "award"
 }
 
 type IncidentDetailSystemEntity struct {

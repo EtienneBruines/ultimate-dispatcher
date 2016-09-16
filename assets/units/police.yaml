@@ -5,16 +5,19 @@ units:
     arrested: 2
     total: 5
     size: 1
+    distance_view: 100
   - name: "Van w/ Cells"
     speed: 120
     passengers: 2
     arrested: 4
     total: 6
     size: 1.5
+    distance_view: 100
   - name: "Bike Light"
     speed: 230
     passengers: 1
     arrested: 0
     total: 1
     size: 0.5
+    distance_view: 100
 

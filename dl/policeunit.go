@@ -20,10 +20,6 @@ const (
 	CommandTrafficControl
 )
 
-type PoliceComponent struct {
-	Police Police
-}
-
 type PoliceUnitType struct {
 	Name             string
 	Speed            float32
@@ -31,6 +27,7 @@ type PoliceUnitType struct {
 	PassengersPolice int     `yaml:"passenges"`
 	PassengersCuffed int     `yaml:"arrested"`
 	PassengersTotal  int     `yaml:"total"`
+	ViewDistance     float32 `yaml:"distance_view"`
 }
 
 type PoliceUnitTypes []PoliceUnitType
@@ -44,8 +41,7 @@ func (p PoliceUnitTypes) ByName(name string) PoliceUnitType {
 	return PoliceUnitType{}
 }
 
-type Police struct {
-	ID       uint32
+type PoliceComponent struct {
 	Location *engo.Point
 	Unit     PoliceUnitType
 
@@ -53,11 +49,12 @@ type Police struct {
 	Commands []PoliceCommand
 	Targets  []engo.Point
 
-	currentCommand PoliceCommand
-	currentTarget  engo.Point
+	CurrentCommand PoliceCommand
+	CurrentTarget  engo.Point
+	CurrentResolve DispatchSystemIncidentEntity
 
 	// Move-specific info
-	currentRoute Route
+	CurrentRoute Route
 }
 
 func LoadPoliceUnits(filename string) (PoliceUnitTypes, error) {
@@ -89,12 +86,12 @@ func LoadPoliceUnits(filename string) (PoliceUnitTypes, error) {
 	return units.Units, nil
 }
 
-func (p *Police) QueueCommand(c PoliceCommand, target engo.Point) {
+func (p *PoliceComponent) QueueCommand(c PoliceCommand, target engo.Point) {
 	p.Commands = append(p.Commands, c)
 	p.Targets = append(p.Targets, target)
 }
 
-func (p *Police) processCommand() (PoliceCommand, engo.Point) {
+func (p *PoliceComponent) processCommand() (PoliceCommand, engo.Point) {
 	if len(p.Commands) == 0 {
 		return CommandHold, engo.Point{}
 	}
@@ -106,39 +103,11 @@ func (p *Police) processCommand() (PoliceCommand, engo.Point) {
 	return cmd, target
 }
 
-func (p *Police) Update(dt float32) {
-	if p.currentCommand == CommandHold {
-		p.currentCommand, p.currentTarget = p.processCommand()
-	}
-	switch p.currentCommand {
-	case CommandHold:
-	// Do nothing
-	case CommandMove:
-		if len(p.currentRoute.Nodes) < 1 {
-			p.SetRoute(p.currentTarget)
-		}
-		p.move(dt)
-	case CommandLookout:
-		// If there's more to do, stop doing this and go do that other thing
-		if len(p.Commands) > 0 {
-			p.currentCommand = CommandHold
-		}
-	case CommandSearchArea:
-		// If there's more to do, stop doing this and go do that other thing
-		if len(p.Commands) > 0 {
-			p.currentCommand = CommandHold
-		}
-	case CommandTrafficControl:
-		// If there's more to do, stop doing this and go do that other thing
-		if len(p.Commands) > 0 {
-			p.currentCommand = CommandHold
-		}
-	default:
-		fmt.Println("Dunno what to do", p.currentCommand)
-	}
+func (p *PoliceComponent) Update(dt float32) {
+
 }
 
-func (p *Police) SetRoute(loc engo.Point) {
+func (p *PoliceComponent) SetRoute(loc engo.Point) {
 	// Go to node closest to where we wanna go
 	dest := CurrentMap.NearestNode(loc)
 
@@ -192,14 +161,14 @@ func (p *Police) SetRoute(loc engo.Point) {
 		panic("No route found")
 	}
 
-	p.currentRoute = route
+	p.CurrentRoute = route
 }
 
-// move allows the unit to move to the set destination, at the speed of the update
-func (p *Police) move(dt float32) {
+// Move allows the unit to move to the set destination, at the speed of the update
+func (p *PoliceComponent) Move(dt float32) {
 	var distance = p.Unit.Speed / 3.6 * dt
 
-	target := p.currentRoute.Nodes[0].Location
+	target := p.CurrentRoute.Nodes[0].Location
 
 	dx := target.X - p.Location.X
 	dy := target.Y - p.Location.Y
@@ -213,14 +182,18 @@ func (p *Police) move(dt float32) {
 	} else {
 		movementX = dx
 		movementY = dy
-		p.currentRoute.Nodes = p.currentRoute.Nodes[1:]
-		if len(p.currentRoute.Nodes) == 0 {
-			p.currentCommand = CommandHold
+		p.CurrentRoute.Nodes = p.CurrentRoute.Nodes[1:]
+		if len(p.CurrentRoute.Nodes) == 0 {
+			p.CurrentCommand = CommandHold
 		} else {
-			fmt.Println(len(p.currentRoute.Nodes))
+			fmt.Println(len(p.CurrentRoute.Nodes))
 		}
 	}
 
 	p.Location.X += movementX
 	p.Location.Y += movementY
+}
+
+func (p *PoliceComponent) Wander(dt float32, location engo.Point) {
+	fmt.Println("TODO: wander behavior")
 }

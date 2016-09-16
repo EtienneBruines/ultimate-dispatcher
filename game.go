@@ -141,21 +141,21 @@ func (g *Game) Setup(w *ecs.World) {
 		{400, 100},
 		{900, 900},
 	}
-	units := []dl.Police{
-		{ID: 1, Unit: unitTypes.ByName("Car")},
-		{ID: 2, Unit: unitTypes.ByName("Car")},
-		{ID: 3, Unit: unitTypes.ByName("Bike Light")},
-		{ID: 4, Unit: unitTypes.ByName("Van w/ Cells")},
+	units := []dl.PoliceComponent{
+		{Unit: unitTypes.ByName("Car")},
+		{Unit: unitTypes.ByName("Car")},
+		{Unit: unitTypes.ByName("Bike Light")},
+		{Unit: unitTypes.ByName("Van w/ Cells")},
 	}
 	for i, unit := range units {
 		pe := dl.PoliceEntity{
 			BasicEntity:     ecs.NewBasic(),
 			RenderComponent: common.RenderComponent{Drawable: ui.PoliceGraphic, Color: ui.PoliceColor, TextureAlignment: common.AlignCenter},
 			SpaceComponent:  common.SpaceComponent{unitLocations[i], ui.PoliceSize * unit.Unit.Size, ui.PoliceSize * unit.Unit.Size, 0},
-			PoliceComponent: dl.PoliceComponent{unit},
+			PoliceComponent: unit,
 		}
 		pe.SetZIndex(ui.PoliceZIndex)
-		pe.PoliceComponent.Police.Location = &pe.SpaceComponent.Position
+		pe.PoliceComponent.Location = &pe.SpaceComponent.Position
 		rs.Add(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent)
 		ms.Add(&pe.BasicEntity, &pe.MouseComponent, &pe.SpaceComponent, &pe.RenderComponent)
 		ds.AddPolice(&pe.BasicEntity, &pe.RenderComponent, &pe.SpaceComponent, &pe.MouseComponent, &pe.PoliceComponent)
