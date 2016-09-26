@@ -48,7 +48,6 @@ func (g *Game) Setup(w *ecs.World) {
 	w.AddSystem(&common.MouseZoomer{ZoomSpeed})
 	w.AddSystem(&dl.IncidentDebugSystem{})
 	w.AddSystem(ds)
-	w.AddSystem(&dl.IncidentDetailSystem{})
 	w.AddSystem(iss)
 
 	/*

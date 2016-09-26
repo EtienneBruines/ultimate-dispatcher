@@ -305,8 +305,6 @@ func (d *IncidentSystem) Spawn(in IncidentComponent) {
 					sys.Add(&report.BasicEntity, &report.MouseComponent, &report.SpaceComponent, &report.RenderComponent)
 				}
 			}
-		case *IncidentDetailSystem:
-			sys.Add(&ie.BasicEntity, &ie.RenderComponent, &ie.MouseComponent, &ie.IncidentComponent)
 		case *DispatchSystem:
 			sys.AddIncident(&ie.BasicEntity, &ie.RenderComponent, &ie.SpaceComponent, &ie.MouseComponent, &ie.IncidentComponent)
 		}
@@ -326,46 +324,4 @@ type IncidentDetailSystemEntity struct {
 	*common.RenderComponent
 	*common.MouseComponent
 	*IncidentComponent
-}
-
-type IncidentDetailSystem struct {
-	incidents map[uint64]IncidentDetailSystemEntity
-
-	world  *ecs.World
-	active uint64
-}
-
-func (d *IncidentDetailSystem) New(w *ecs.World) {
-	d.world = w
-	d.incidents = make(map[uint64]IncidentDetailSystemEntity)
-}
-
-func (d *IncidentDetailSystem) Add(b *ecs.BasicEntity, r *common.RenderComponent, m *common.MouseComponent, i *IncidentComponent) {
-	d.incidents[b.ID()] = IncidentDetailSystemEntity{b, r, m, i}
-}
-
-func (d *IncidentDetailSystem) Remove(b ecs.BasicEntity) {
-	delete(d.incidents, b.ID())
-}
-
-func (d *IncidentDetailSystem) Update(dt float32) {
-	/*
-		//if d.active == 0 {
-		for uid, in := range d.incidents {
-			if in.MouseComponent.Enter {
-				in.Color = IncidentColorHover
-				engo.SetCursor(engo.CursorHand)
-				d.active = uid
-			} else if in.MouseComponent.Leave {
-				in.Color = IncidentColor
-				engo.SetCursor(engo.CursorNone)
-				d.active = 0
-			}
-		}
-		//}
-
-		if d.active > 0 {
-
-		}
-	*/
 }
