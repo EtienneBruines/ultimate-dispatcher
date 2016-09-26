@@ -21,6 +21,17 @@ const (
 	incidentViewKey     = "incident-viewing-key"
 )
 
+type Incident interface {
+	Type() string
+	Update(float32)
+	SetLocation(*engo.Point)
+
+	// Resolved indicates whether or not the incident has been resolved. < 0 if failed, > 0 if succeeded, 0 if ongoing.
+	Resolved() int
+	Reward() int
+	Penalty() int
+}
+
 type IncidentDebugViewMessage struct {
 	NewValue bool
 }
@@ -65,15 +76,6 @@ func (d *IncidentDebugSystem) Update(dt float32) {
 	}
 }
 
-type IncidentType uint8
-
-const (
-	IncidentCarAccident IncidentType = iota
-	IncidentCarSpeeding
-	IncidentHomeRobbery
-	IncidentPublicIntoxication
-)
-
 type UrgencyLevel uint8
 
 const (
@@ -85,16 +87,14 @@ const (
 
 type IncidentComponent struct {
 	Location *engo.Point
-	Award    int
-	Penalty  int
-	Type     IncidentType
+	Incident Incident
 
 	Reports []IncidentReportComponent
 }
 
 type IncidentReportComponent struct {
 	Location  *engo.Point
-	Type      IncidentType
+	Type string
 	MinAmount uint8
 	MaxAmount uint8
 	Urgency   UrgencyLevel
@@ -116,7 +116,7 @@ type IncidentReportEntity struct {
 	IncidentReportComponent
 }
 
-type IncidentSpawningSystem struct {
+type IncidentSystem struct {
 	world         *ecs.World
 	incidentLabel ui.Label
 
@@ -124,7 +124,7 @@ type IncidentSpawningSystem struct {
 	activeIncidentReports map[uint64][]*IncidentReportEntity
 }
 
-func (d *IncidentSpawningSystem) New(w *ecs.World) {
+func (d *IncidentSystem) New(w *ecs.World) {
 	d.world = w
 	d.activeIncidentReports = make(map[uint64][]*IncidentReportEntity)
 
@@ -175,7 +175,7 @@ func (d *IncidentSpawningSystem) New(w *ecs.World) {
 	}
 }
 
-func (d *IncidentSpawningSystem) Remove(b ecs.BasicEntity) {
+func (d *IncidentSystem) Remove(b ecs.BasicEntity) {
 	for incidentID, reports := range d.activeIncidentReports {
 		index := -1
 		for i, report := range reports {
@@ -213,11 +213,34 @@ func (d *IncidentSpawningSystem) Remove(b ecs.BasicEntity) {
 	}
 }
 
-func (d *IncidentSpawningSystem) Update(dt float32) {
+func (d *IncidentSystem) Update(dt float32) {
 	d.incidentLabel.SetText(fmt.Sprintf("Active Incidents: %d", len(d.activeIncidents)))
+
+	// Manage all incidents
+	var msgs []IncidentResolveMessage
+	for _, i := range d.activeIncidents {
+		i.Incident.Update(dt)
+
+		f := i.Incident.Resolved()
+		switch  {
+		case f < 0:
+			log.Println("You have failed, penalty", i.Incident.Penalty())
+		case f > 0:
+			log.Println("Good job! You gained", i.Incident.Reward())
+		default:
+			continue
+		}
+
+		msgs = append(msgs, IncidentResolveMessage{&i.IncidentComponent, &i.BasicEntity})
+	}
+
+	// And remove any that can be removed
+	for _, msg := range msgs {
+		engo.Mailbox.Dispatch(msg)
+	}
 }
 
-func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
+func (d *IncidentSystem) Spawn(in IncidentComponent) {
 	ie := &IncidentEntity{
 		BasicEntity: ecs.NewBasic(),
 		RenderComponent: common.RenderComponent{
@@ -234,6 +257,7 @@ func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
 		},
 	}
 	in.Location = &ie.SpaceComponent.Position
+	in.Incident.SetLocation(&ie.SpaceComponent.Position)
 	ie.IncidentComponent = in
 
 	ie.RenderComponent.SetZIndex(5)
@@ -261,7 +285,6 @@ func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
 		if l, ok := d.activeIncidentReports[ie.ID()]; ok {
 			curList = l
 		}
-		log.Println("Added", re.BasicEntity)
 		curList = append(curList, re)
 		d.activeIncidentReports[ie.ID()] = curList
 	}
@@ -292,10 +315,10 @@ func (d *IncidentSpawningSystem) Spawn(in IncidentComponent) {
 	d.activeIncidents = append(d.activeIncidents, ie)
 }
 
-func (d *IncidentSpawningSystem) Resolve(in *IncidentComponent, basic *ecs.BasicEntity) {
+func (d *IncidentSystem) Resolve(in *IncidentComponent, basic *ecs.BasicEntity) {
 	log.Println("Resolving", in.Location)
 	d.world.RemoveEntity(*basic)
-	// TODO: "award"
+	// TODO: "award" or "penalty"
 }
 
 type IncidentDetailSystemEntity struct {

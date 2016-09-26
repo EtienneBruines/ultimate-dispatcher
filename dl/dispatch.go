@@ -377,7 +377,7 @@ func (d *DispatchSystem) Update(dt float32) {
 		// Do nothing
 		case CommandMove:
 			if len(p.CurrentRoute.Nodes) < 1 {
-				p.SetRoute(p.CurrentTarget)
+				p.CurrentRoute = SetRoute(*p.Location, p.CurrentTarget)
 			}
 			p.Move(dt)
 		case CommandLookout:

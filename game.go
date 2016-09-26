@@ -37,7 +37,7 @@ func (g *Game) Setup(w *ecs.World) {
 	common.SetBackground(color.NRGBA{100, 100, 100, 255})
 	rs := &common.RenderSystem{}
 	ms := &common.MouseSystem{}
-	iss := &dl.IncidentSpawningSystem{}
+	iss := &dl.IncidentSystem{}
 	ds := &dl.DispatchSystem{}
 
 	w.AddSystem(&common.CameraSystem{})
@@ -116,11 +116,18 @@ func (g *Game) Setup(w *ecs.World) {
 	}
 
 	// Now let's move on to the "incidents"
+	start := engo.Point{100, 100}
+	goal := engo.Point{500, 100}
 	incidents := []dl.IncidentComponent{
-		{Type: dl.IncidentCarSpeeding, Location: &engo.Point{100, 100}, Reports: []dl.IncidentReportComponent{
-			{&engo.Point{100, 145}, dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNeutral},
-			{&engo.Point{130, 104}, dl.IncidentCarSpeeding, 1, 1, dl.UrgencyNotUrgent},
-			{&engo.Point{165, 102}, dl.IncidentCarAccident, 1, 2, dl.UrgencyUrgent},
+		{Location: &start,
+			Incident: &dl.IncidentCarSpeeding{
+				Start: start,
+				Goal: goal,
+			},
+			Reports: []dl.IncidentReportComponent{
+			{&engo.Point{100, 145}, "IncidentCarAccident", 1, 1, dl.UrgencyNeutral},
+			{&engo.Point{130, 104}, "IncidentCarAccident", 1, 1, dl.UrgencyNotUrgent},
+			{&engo.Point{165, 102}, "IncidentCarAccident", 1, 2, dl.UrgencyUrgent},
 		}},
 	}
 
