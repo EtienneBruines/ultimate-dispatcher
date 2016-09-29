@@ -47,11 +47,13 @@ type DispatchSystemIncidentReportEntity struct {
 	*IncidentReportComponent
 }
 
-type DispatchSystem struct {
+var (
 	police          map[uint64]DispatchSystemPoliceEntity
 	incidents       map[uint64]DispatchSystemIncidentEntity
 	incidentReports map[uint64]DispatchSystemIncidentReportEntity
+)
 
+type DispatchSystem struct {
 	active            uint64
 	submenuTarget     engo.Point
 	submenuActive     bool
@@ -62,7 +64,7 @@ type DispatchSystem struct {
 }
 
 func (d *DispatchSystem) QueueCommand(c PoliceCommand) {
-	unit := d.police[d.active]
+	unit := police[d.active]
 	// create a temporary node for the submenuTarget
 
 	nearest := CurrentMap.NearestNode(d.submenuTarget)
@@ -98,8 +100,8 @@ func (d *DispatchSystem) QueueCommand(c PoliceCommand) {
 }
 
 func (d *DispatchSystem) New(w *ecs.World) {
-	d.police = make(map[uint64]DispatchSystemPoliceEntity)
-	d.incidents = make(map[uint64]DispatchSystemIncidentEntity)
+	police = make(map[uint64]DispatchSystemPoliceEntity)
+	incidents = make(map[uint64]DispatchSystemIncidentEntity)
 
 	engo.Input.RegisterButton(closeButton, engo.Escape)
 
@@ -229,27 +231,27 @@ func (d *DispatchSystem) showSubmenu(pos engo.Point) {
 }
 
 func (d *DispatchSystem) AddPolice(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, p *PoliceComponent) {
-	d.police[b.ID()] = DispatchSystemPoliceEntity{b, r, s, m, p}
+	police[b.ID()] = DispatchSystemPoliceEntity{b, r, s, m, p}
 }
 
 func (d *DispatchSystem) AddIncident(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, i *IncidentComponent) {
-	d.incidents[b.ID()] = DispatchSystemIncidentEntity{b, r, s, m, i}
+	incidents[b.ID()] = DispatchSystemIncidentEntity{b, r, s, m, i}
 }
 
 func (d *DispatchSystem) AddIncidentReport(b *ecs.BasicEntity, r *common.RenderComponent, s *common.SpaceComponent, m *common.MouseComponent, i *IncidentReportComponent) {
-	d.incidentReports[b.ID()] = DispatchSystemIncidentReportEntity{b, r, s, m, i}
+	incidentReports[b.ID()] = DispatchSystemIncidentReportEntity{b, r, s, m, i}
 }
 
 func (d *DispatchSystem) Remove(b ecs.BasicEntity) {
-	delete(d.police, b.ID())
-	delete(d.incidents, b.ID())
-	delete(d.incidentReports, b.ID())
+	delete(police, b.ID())
+	delete(incidents, b.ID())
+	delete(incidentReports, b.ID())
 }
 
 func (d *DispatchSystem) Update(dt float32) {
 	// Allow us to select a police unit
 	if d.active == 0 {
-		for id, police := range d.police {
+		for id, police := range police {
 			if police.MouseComponent.Enter {
 				police.Color = ui.PoliceColorHover
 				ui.StartHovering(id)
@@ -269,7 +271,7 @@ func (d *DispatchSystem) Update(dt float32) {
 
 	// If we've selected a police unit, we can issue commands
 	if d.active > 0 {
-		police := d.police[d.active]
+		police := police[d.active]
 
 		if !d.submenuActive {
 
@@ -368,7 +370,7 @@ func (d *DispatchSystem) Update(dt float32) {
 	}
 
 	// Process all commands given to any units
-	for _, p := range d.police {
+	for _, p := range police {
 		if p.CurrentCommand == CommandHold {
 			p.CurrentCommand, p.CurrentTarget = p.processCommand()
 		}
@@ -377,7 +379,13 @@ func (d *DispatchSystem) Update(dt float32) {
 		// Do nothing
 		case CommandMove:
 			if len(p.CurrentRoute.Nodes) < 1 {
-				p.CurrentRoute = SetRoute(*p.Location, p.CurrentTarget)
+				p.CurrentRoute = SetRoute(*p.Location, p.CurrentTarget, func(curr, goal, pos *RouteNode) float32 {
+					dx := pos.Location.X - goal.Location.X
+					dy := pos.Location.Y - goal.Location.Y
+					dx2 := pos.Location.X - curr.Location.X
+					dy2 := pos.Location.Y - curr.Location.Y
+					return dx*dx + dy*dy + (dx2*dx2 + dy2*dy2)
+				})
 			}
 			p.Move(dt)
 		case CommandLookout:
@@ -414,7 +422,7 @@ func (d *DispatchSystem) Lookout(p *PoliceComponent, t engo.Point) {
 
 	if p.CurrentResolve.BasicEntity == nil {
 		// Find new target, if any
-		for _, incident := range d.incidents {
+		for _, incident := range incidents {
 			if incident.Location.PointDistance(*p.Location) < maxDist {
 				p.CurrentResolve = incident
 				log.Println("Set currentResolve")
